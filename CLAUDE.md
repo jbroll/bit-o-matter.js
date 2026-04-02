@@ -9,25 +9,25 @@ Matter CLI is a minimal, scriptable Matter device controller. It's a modular Nod
 ## Running the CLI
 
 ```bash
-matter-cli wifi <ssid> <password>              # save Wi-Fi credentials
-matter-cli pair                                 # scan QR code via browser
-matter-cli pair <name> <manual-code>            # 11-digit code from label
-matter-cli pair <name> <passcode> <disc>        # explicit pairing
-matter-cli on <name>
-matter-cli off <name>
-matter-cli list
-matter-cli rename <old> <new>
-matter-cli remove <name>
-matter-cli scan                                 # BLE diagnostic scan
+bit wifi <ssid> <password>              # save Wi-Fi credentials
+bit pair                                 # scan QR code via browser
+bit pair <name> <manual-code>            # 11-digit code from label
+bit pair <name> <passcode> <disc>        # explicit pairing
+bit on <name>
+bit off <name>
+bit list
+bit rename <old> <new>
+bit remove <name>
+bit scan                                 # BLE diagnostic scan
 ```
 
-There is no build step, test suite, or linter configured. Dependencies are installed with `npm install`. A postinstall script (`postinstall.cjs`) patches matter.js for BLE scan compatibility and WiFi scan tolerance.
+There is no build step or linter. Dependencies are installed with `npm install`. Tests run with `npm test` (uses `node:test`). A postinstall script (`postinstall.cjs`) patches matter.js for BLE scan compatibility and WiFi scan tolerance.
 
 ## Architecture
 
 ### Module layout
 
-- `matter-cli.js` — CLI entry point, arg parsing, usage
+- `bit-o-matter.js` — CLI entry point (`bit` command), arg parsing, usage
 - `lib/store.js` — Device/WiFi persistence, device type lookup
 - `lib/controller.js` — Lazy matter.js loader, controller factory
 - `lib/commands.js` — All commands: pair, toggle, list, rename, remove, scan

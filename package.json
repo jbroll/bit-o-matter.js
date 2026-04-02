@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "type": "module",
   "bin": {
-    "matter-cli": "./matter-cli.js"
+    "bit": "./bit-o-matter.js"
   },
   "scripts": {
-    "postinstall": "node postinstall.cjs"
+    "postinstall": "node postinstall.cjs",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "@matter/main": "^0.17.0-alpha.0-20260401-1edc54c9a",
