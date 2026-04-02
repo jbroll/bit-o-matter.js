@@ -12,26 +12,7 @@
  */
 
 import fs from "fs";
-import http from "http";
-import { createRequire } from "module";
 import path from "path";
-
-const require = createRequire(import.meta.url);
-const JSQR_JS = fs.readFileSync(require.resolve("jsqr/dist/jsQR.js"));
-import open from "open";
-import "@matter/nodejs-ble";
-import {
-  ServerNode,
-  Environment,
-  Logger,
-  LogLevel,
-  ControllerBehavior,
-  Seconds,
-} from "@matter/main";
-import { QrPairingCodeCodec } from "@matter/main/types";
-import { ManualPairingCodeCodec } from "@matter/types/schema";
-import { Invoke } from "@matter/main/protocol";
-import { OnOff } from "@matter/main/clusters/on-off";
 
 // ---------- Config ----------
 
@@ -39,15 +20,23 @@ const BASE_DIR = path.resolve(".matter-cli");
 const DEVICES_FILE = path.join(BASE_DIR, "devices.json");
 const WIFI_FILE = path.join(BASE_DIR, "wifi.json");
 
-// Show commissioning progress
-Logger.defaultLogLevel = LogLevel.DEBUG;
-Logger.addLogger("console", (level, msg) => process.stderr.write(msg + "\n"));
+let _matter; // cached matter.js imports
+async function matter() {
+  if (_matter) return _matter;
+  const m = await import("@matter/main");
+  const { Invoke } = await import("@matter/main/protocol");
+  const { OnOff } = await import("@matter/main/clusters/on-off");
 
-// Configure storage path and disable process signal trapping before creating nodes
-Environment.default.vars.set("path.root", BASE_DIR);
-Environment.default.vars.set("runtime.signals", false);
-Environment.default.vars.set("runtime.exitcode", false);
-Environment.default.vars.set("ble.enable", true);
+  const verbose = process.argv.includes("--verbose");
+  m.Logger.defaultLogLevel = verbose ? m.LogLevel.DEBUG : m.LogLevel.FATAL;
+  m.Environment.default.vars.set("path.root", BASE_DIR);
+  m.Environment.default.vars.set("runtime.signals", false);
+  m.Environment.default.vars.set("runtime.exitcode", false);
+  m.Environment.default.vars.set("ble.enable", false);
+
+  _matter = { ...m, Invoke, OnOff };
+  return _matter;
+}
 
 // ---------- Helpers ----------
 
@@ -77,10 +66,18 @@ function saveWifi(ssid, password) {
   fs.writeFileSync(WIFI_FILE, JSON.stringify(wifi, null, 2));
 }
 
-async function getController() {
+async function getController({ ble = false } = {}) {
+  const { ServerNode, ControllerBehavior, Environment } = await matter();
+  if (ble) {
+    Environment.default.vars.set("ble.enable", true);
+    await import("@matter/nodejs-ble");
+  }
   const controller = await ServerNode.create(
     ServerNode.RootEndpoint.with(ControllerBehavior),
-    { controller: { adminFabricLabel: "matter-cli" } },
+    {
+      network: { ble: false },
+      controller: { adminFabricLabel: "matter-cli", ble },
+    },
   );
   await controller.start();
   return controller;
@@ -214,7 +211,14 @@ const SCAN_PAGE_HTML = `<!DOCTYPE html>
  * Call notify(null) on success or notify(err) on failure — this sends the
  * final result to the browser and closes the server.
  */
-function scanQrCode() {
+async function scanQrCode() {
+  const http = await import("http");
+  const { default: open } = await import("open");
+  const { createRequire } = await import("module");
+  const require = createRequire(import.meta.url);
+  const JSQR_JS = fs.readFileSync(require.resolve("jsqr/dist/jsQR.js"));
+  const { QrPairingCodeCodec } = await import("@matter/main/types");
+
   return new Promise((resolve, reject) => {
     let pairRes = null; // held open until commissioning finishes
 
@@ -275,6 +279,8 @@ function scanQrCode() {
 function usage() {
   console.log(`
 Usage:
+  wifi <ssid> <password>                                    save Wi-Fi credentials
+  wifi                                                     show saved Wi-Fi networks
   pair <name>                                              scan QR code via browser
   pair <name> <manual-code>                                11-digit code from label
   pair <name> <passcode> <discriminator>                   explicit (Wi-Fi from wifi.json)
@@ -284,16 +290,18 @@ Usage:
   list
 
 Examples:
-  node matter-cli.js pair kitchen
-  node matter-cli.js pair kitchen 12345678 3840
-  node matter-cli.js pair kitchen 12345678 3840 MyWifi s3cr3t
-  node matter-cli.js on kitchen
+  matter-cli wifi MyNetwork s3cr3t
+  matter-cli pair kitchen 0387-951-7925
+  matter-cli on kitchen
 `);
 }
 
 // ---------- Commands ----------
 
 async function pair(name, passcode, discriminator, cliSsid, cliWifiPassword) {
+  // Lazy-load pairing-only dependencies
+  const { ManualPairingCodeCodec } = await import("@matter/types/schema");
+
   let notify, ssid, wifiPassword;
 
   // Detect manual pairing code: single arg that is all digits/dashes (11 digits)
@@ -306,7 +314,6 @@ async function pair(name, passcode, discriminator, cliSsid, cliWifiPassword) {
     const decoded = ManualPairingCodeCodec.decode(passcode.replace(/\D/g, ""));
     passcode = decoded.passcode;
     discriminator = undefined; // will use shortDiscriminator below
-    console.log(`Manual code decoded: passcode=${passcode} shortDiscriminator=${decoded.shortDiscriminator}`);
     // Store shortDiscriminator for commission options
     passcode = { passcode: decoded.passcode, shortDiscriminator: decoded.shortDiscriminator };
   }
@@ -322,7 +329,6 @@ async function pair(name, passcode, discriminator, cliSsid, cliWifiPassword) {
       if (keys.length === 1) {
         ssid = keys[0];
         wifiPassword = saved[ssid];
-        console.log(`Using saved Wi-Fi network: ${ssid}`);
       } else if (keys.length > 1) {
         const arg = isManualCode ? passcode?.passcode ?? passcode : `${passcode} ${discriminator}`;
         console.error(`Multiple saved Wi-Fi networks — specify: pair ${name} ${arg} <ssid> <password>`);
@@ -331,9 +337,13 @@ async function pair(name, passcode, discriminator, cliSsid, cliWifiPassword) {
     }
   }
 
-  const controller = await getController();
-
-  console.log("Commissioning device (120s timeout)...");
+  const { Seconds, Logger, LogLevel } = await matter();
+  // Pair always shows progress — use INFO unless --verbose requests DEBUG
+  if (!process.argv.includes("--verbose")) {
+    Logger.defaultLogLevel = LogLevel.INFO;
+  }
+  process.stderr.write("Starting controller...\n");
+  const controller = await getController({ ble: true });
 
   let commissionOptions;
   if (isManualCode && typeof passcode === "object") {
@@ -349,10 +359,12 @@ async function pair(name, passcode, discriminator, cliSsid, cliWifiPassword) {
       timeout: Seconds(120),
     };
   }
+  commissionOptions.regulatoryCountryCode = "US";
   if (ssid) {
     commissionOptions.wifiNetwork = { wifiSsid: ssid, wifiCredentials: wifiPassword };
   }
 
+  process.stderr.write("Scanning for device...\n");
   let clientNode;
   try {
     clientNode = await controller.peers.commission(commissionOptions);
@@ -372,7 +384,7 @@ async function pair(name, passcode, discriminator, cliSsid, cliWifiPassword) {
 
   if (ssid) saveWifi(ssid, wifiPassword);
   if (notify) notify(null);
-  console.log(`Paired '${name}' as ${clientNode.id}`);
+  console.log(`Paired '${name}'`);
   await controller.close();
 }
 
@@ -396,9 +408,8 @@ async function toggle(name, turnOn) {
     process.exit(1);
   }
 
+  const { Invoke, OnOff } = await matter();
   const command = turnOn ? "on" : "off";
-  console.log(`Turning ${command.toUpperCase()} '${name}'...`);
-
   for await (const _ of peer.interaction.invoke(
     Invoke(
       Invoke.ConcreteCommandRequest({
@@ -408,8 +419,6 @@ async function toggle(name, turnOn) {
       }),
     ),
   )) { /* drain response chunks */ }
-
-  console.log("Done.");
   await controller.close();
 }
 
@@ -438,6 +447,24 @@ async function main() {
       case "pair":
         if (![1, 2, 3, 5].includes(args.length)) return usage();
         await pair(args[0], args[1], args[2], args[3], args[4]);
+        break;
+
+      case "wifi":
+        if (args.length === 2) {
+          saveWifi(args[0], args[1]);
+          console.log(`Saved Wi-Fi network: ${args[0]}`);
+        } else if (args.length === 0) {
+          const saved = loadWifi();
+          const ssids = Object.keys(saved);
+          if (ssids.length === 0) {
+            console.log("No saved Wi-Fi networks.");
+          } else {
+            console.log("Saved Wi-Fi networks:");
+            for (const s of ssids) console.log(`  ${s}`);
+          }
+        } else {
+          return usage();
+        }
         break;
 
       case "on":

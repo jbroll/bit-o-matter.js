@@ -6,11 +6,11 @@
     "matter-cli": "./matter-cli.js"
   },
   "scripts": {
-    "postinstall": "node -e \"const fs=require('fs');['esm','cjs'].forEach(t=>{const f='node_modules/@matter/nodejs-ble/dist/'+t+'/NobleBleClient.js';const s=fs.readFileSync(f,'utf8');fs.writeFileSync(f,s.replace(/startScanningAsync\\(\\[.*?BLE_MATTER_SERVICE_UUID_SHORT.*?\\]/,'startScanningAsync([]'));});\""
+    "postinstall": "node postinstall.cjs"
   },
   "dependencies": {
-    "@matter/main": "^0.16.10",
-    "@matter/nodejs-ble": "^0.16.10",
+    "@matter/main": "^0.17.0-alpha.0-20260401-1edc54c9a",
+    "@matter/nodejs-ble": "^0.17.0-alpha.0-20260401-1edc54c9a",
     "@zxing/browser": "^0.1.5",
     "jsqr": "^1.4.0",
     "open": "^11.0.0"
