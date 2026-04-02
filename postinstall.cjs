@@ -1,10 +1,13 @@
 const fs = require("fs");
 
+let failed = false;
+
 function patch(file, pattern, replacement, label) {
   const s = fs.readFileSync(file, "utf8");
   if (!pattern.test(s)) {
     if (s.includes(replacement.slice(0, 30))) return; // already patched
-    console.warn(`postinstall: patch "${label}" did not match in ${file}`);
+    console.error(`postinstall: FATAL — patch "${label}" did not match in ${file}`);
+    failed = true;
     return;
   }
   fs.writeFileSync(file, s.replace(pattern, replacement));
@@ -39,3 +42,5 @@ function patch(file, pattern, replacement, label) {
     "WiFi scan validation"
   );
 });
+
+if (failed) process.exit(1);
