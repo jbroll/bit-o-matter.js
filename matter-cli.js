@@ -31,11 +31,8 @@ Usage:
   remove <name>                                            decommission and remove a device
   scan                                                     scan BLE for Matter devices
 
-Examples:
-  matter-cli wifi MyNetwork s3cr3t
-  matter-cli pair
-  matter-cli pair kitchen 0387-951-7925
-  matter-cli on kitchen
+Options:
+  --verbose                                                show matter.js debug logging
 `);
 }
 
@@ -71,10 +68,12 @@ async function main() {
         break;
 
       case "on":
+        if (args.length !== 1) return usage();
         await toggle(args[0], true);
         break;
 
       case "off":
+        if (args.length !== 1) return usage();
         await toggle(args[0], false);
         break;
 
