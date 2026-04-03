@@ -99,6 +99,52 @@ describe("subscribeAll", () => {
     assert.equal(cache.size, 1);
   });
 
+  it("calls onUpdate callback instead of direct cache write", async () => {
+    const cache = new Map();
+    const devices = { plug1: { id: "peer1", endpoint: 1 } };
+    const updates = [];
+
+    const reports = [
+      { kind: "attr-value", path: { clusterId: 6, attributeId: 0 }, value: true },
+      { kind: "attr-value", path: { clusterId: 8, attributeId: 0 }, value: 200 },
+    ];
+
+    const controller = mockController([mockPeer("peer1", reports)]);
+    await subscribeAll(controller, cache, devices, (thingId, prop, value) => {
+      updates.push({ thingId, prop, value });
+    });
+
+    assert.equal(updates.length, 2);
+    assert.deepEqual(updates[0], { thingId: "plug1", prop: "on", value: true });
+    assert.deepEqual(updates[1], { thingId: "plug1", prop: "brightness", value: 200 });
+    // Cache should NOT be updated directly when onUpdate is provided
+    assert.deepEqual(cache.get("plug1"), {});
+  });
+
+  it("maps all ColorControl attributes", async () => {
+    const cache = new Map();
+    const devices = { light1: { id: "peer1", endpoint: 1 } };
+
+    const reports = [
+      { kind: "attr-value", path: { clusterId: 768, attributeId: 0 }, value: 120 },
+      { kind: "attr-value", path: { clusterId: 768, attributeId: 1 }, value: 200 },
+      { kind: "attr-value", path: { clusterId: 768, attributeId: 3 }, value: 0.3 },
+      { kind: "attr-value", path: { clusterId: 768, attributeId: 4 }, value: 0.5 },
+      { kind: "attr-value", path: { clusterId: 768, attributeId: 7 }, value: 4000 },
+    ];
+
+    const controller = mockController([mockPeer("peer1", reports)]);
+    await subscribeAll(controller, cache, devices);
+
+    assert.deepEqual(cache.get("light1"), {
+      hue: 120,
+      saturation: 200,
+      colorX: 0.3,
+      colorY: 0.5,
+      colorTemperature: 4000,
+    });
+  });
+
   it("handles subscription failure gracefully", async () => {
     const cache = new Map();
     const devices = { broken: { id: "peer1", endpoint: 1 } };

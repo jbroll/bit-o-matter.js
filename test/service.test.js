@@ -314,6 +314,77 @@ describe("GET /events (SSE)", () => {
   });
 });
 
+describe("invalid request bodies", () => {
+  it("returns 500 for invalid JSON", async () => {
+    saveDevices({ plug1: { id: "peer1", endpoint: 1 } });
+    const server = await svc.listen();
+    const addr = server.address();
+    const res = await fetch(`http://127.0.0.1:${addr.port}/things/plug1/properties/on`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: "{not valid json",
+    });
+    assert.equal(res.status, 500);
+  });
+});
+
+describe("service with mock controller", () => {
+  let ctrlSvc, ctrlTmpDir;
+
+  beforeEach(() => {
+    ctrlTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "svc-ctrl-test-"));
+    setBaseDir(ctrlTmpDir);
+    ensureDirs();
+  });
+
+  afterEach(async () => {
+    if (ctrlSvc) await ctrlSvc.close();
+    fs.rmSync(ctrlTmpDir, { recursive: true });
+  });
+
+  it("toggle action invokes command on controller", async () => {
+    saveDevices({ plug1: { id: "peer1", endpoint: 1 } });
+    let invoked = false;
+    const mockController = {
+      peers: {
+        get: (id) => id === "peer1" ? {
+          interaction: {
+            invoke() {
+              invoked = true;
+              return { async *[Symbol.asyncIterator]() {} };
+            },
+          },
+        } : null,
+      },
+    };
+    ctrlSvc = createService({ port: 0, controller: mockController });
+    ctrlSvc.cache.set("plug1", { on: true });
+    const server = await ctrlSvc.listen();
+    const { status } = await request(server, "/things/plug1/actions/toggle", { method: "POST" });
+    assert.equal(status, 204);
+    assert.ok(invoked);
+  });
+
+  it("delete removes device via controller", async () => {
+    saveDevices({ plug1: { id: "peer1", endpoint: 1 } });
+    let decommissioned = false;
+    const mockController = {
+      peers: {
+        get: (id) => id === "peer1" ? {
+          decommission: async () => { decommissioned = true; },
+          delete: async () => {},
+        } : null,
+      },
+    };
+    ctrlSvc = createService({ port: 0, controller: mockController });
+    const server = await ctrlSvc.listen();
+    const { status } = await request(server, "/things/plug1", { method: "DELETE" });
+    assert.equal(status, 204);
+    assert.ok(decommissioned);
+    assert.equal(ctrlSvc.cache.has("plug1"), false);
+  });
+});
+
 describe("unknown routes", () => {
   it("returns 404", async () => {
     const server = await svc.listen();

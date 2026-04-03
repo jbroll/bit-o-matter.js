@@ -105,14 +105,20 @@ describe("rename", () => {
 describe("toggle", () => {
   it("throws on unknown device", async () => {
     saveDevices({});
-    // Mock the controller module to avoid loading matter.js
     const mockController = {
       peers: { get: () => null },
-      close: async () => {},
     };
-    // We need to use the real toggle but with a device that doesn't exist
     const { toggle } = await import("../lib/commands.js");
     await assert.rejects(() => toggle(mockController, "missing", true), /Unknown device/);
+  });
+
+  it("throws when peer not in controller storage", async () => {
+    saveDevices({ plug1: { id: "peer1", endpoint: 1 } });
+    const mockController = {
+      peers: { get: () => null },
+    };
+    const { toggle } = await import("../lib/commands.js");
+    await assert.rejects(() => toggle(mockController, "plug1", true), /not found in controller/);
   });
 });
 
@@ -121,6 +127,53 @@ describe("remove", () => {
     saveDevices({});
     const { remove } = await import("../lib/commands.js");
     await assert.rejects(() => remove(null, "missing"), /Unknown device/);
+  });
+
+  it("decommissions and removes device", async () => {
+    saveDevices({ plug1: { id: "peer1", endpoint: 1 } });
+    let decommissioned = false;
+    const mockController = {
+      peers: {
+        get: (id) => id === "peer1" ? {
+          decommission: async () => { decommissioned = true; },
+          delete: async () => {},
+        } : null,
+      },
+    };
+    const lines = captureLog();
+    const { remove } = await import("../lib/commands.js");
+    await remove(mockController, "plug1");
+    assert.ok(decommissioned);
+    assert.ok(lines.some(l => l.includes("Removed")));
+    const devices = JSON.parse(fs.readFileSync(path.join(tmpDir, "devices.json")));
+    assert.equal(devices.plug1, undefined);
+  });
+
+  it("falls back to delete when decommission fails", async () => {
+    saveDevices({ plug1: { id: "peer1", endpoint: 1 } });
+    let deleted = false;
+    const mockController = {
+      peers: {
+        get: (id) => id === "peer1" ? {
+          decommission: async () => { throw new Error("unreachable"); },
+          delete: async () => { deleted = true; },
+        } : null,
+      },
+    };
+    const { remove } = await import("../lib/commands.js");
+    await remove(mockController, "plug1");
+    assert.ok(deleted);
+  });
+
+  it("removes device even when peer not in controller", async () => {
+    saveDevices({ plug1: { id: "peer1", endpoint: 1 } });
+    const mockController = {
+      peers: { get: () => null },
+    };
+    const { remove } = await import("../lib/commands.js");
+    await remove(mockController, "plug1");
+    const devices = JSON.parse(fs.readFileSync(path.join(tmpDir, "devices.json")));
+    assert.equal(devices.plug1, undefined);
   });
 });
 
@@ -140,5 +193,91 @@ describe("pair", () => {
       () => pair(null, undefined, "12345678", "3840"),
       /name is required/
     );
+  });
+
+  it("uses single saved wifi network", async () => {
+    saveDevices({});
+    saveWifi("MyNet", "secret123");
+    let capturedOpts;
+    const mockController = {
+      peers: {
+        [Symbol.iterator]: () => [][Symbol.iterator](),
+        commission: async (opts) => {
+          capturedOpts = opts;
+          return { id: "peer99" };
+        },
+      },
+    };
+    const { pair } = await import("../lib/commands.js");
+    captureLog();
+    await pair(mockController, "newplug", "12345678", "3840");
+    assert.ok(capturedOpts.wifiNetwork);
+    assert.equal(capturedOpts.wifiNetwork.wifiSsid, "MyNet");
+    assert.equal(capturedOpts.wifiNetwork.wifiCredentials, "secret123");
+  });
+
+  it("throws when multiple wifi networks and none specified", async () => {
+    saveDevices({});
+    saveWifi("Net1", "pass1");
+    saveWifi("Net2", "pass2");
+    const { pair } = await import("../lib/commands.js");
+    await assert.rejects(
+      () => pair(null, "newplug", "12345678", "3840"),
+      /Multiple saved Wi-Fi/
+    );
+  });
+
+  it("uses CLI wifi args over saved networks", async () => {
+    saveDevices({});
+    saveWifi("SavedNet", "savedpass");
+    let capturedOpts;
+    const mockController = {
+      peers: {
+        [Symbol.iterator]: () => [][Symbol.iterator](),
+        commission: async (opts) => {
+          capturedOpts = opts;
+          return { id: "peer99" };
+        },
+      },
+    };
+    const { pair } = await import("../lib/commands.js");
+    captureLog();
+    await pair(mockController, "newplug", "12345678", "3840", "CliNet", "clipass");
+    assert.equal(capturedOpts.wifiNetwork.wifiSsid, "CliNet");
+    assert.equal(capturedOpts.wifiNetwork.wifiCredentials, "clipass");
+  });
+
+  it("cleans up orphaned peers before commissioning", async () => {
+    saveDevices({ existing: { id: "peer1", endpoint: 1 } });
+    let orphanDeleted = false;
+    const mockController = {
+      peers: {
+        [Symbol.iterator]: () => [{
+          id: "orphan_peer",
+          delete: async () => { orphanDeleted = true; },
+        }][Symbol.iterator](),
+        commission: async () => ({ id: "peer99" }),
+      },
+    };
+    const { pair } = await import("../lib/commands.js");
+    captureLog();
+    await pair(mockController, "newplug", "12345678", "3840");
+    assert.ok(orphanDeleted, "should delete peer not in devices.json");
+  });
+
+  it("saves device after successful commission", async () => {
+    saveDevices({});
+    const mockController = {
+      peers: {
+        [Symbol.iterator]: () => [][Symbol.iterator](),
+        commission: async () => ({ id: "peer42" }),
+      },
+    };
+    const { pair } = await import("../lib/commands.js");
+    captureLog();
+    await pair(mockController, "myplug", "12345678", "3840");
+    const devices = JSON.parse(fs.readFileSync(path.join(tmpDir, "devices.json")));
+    assert.equal(devices.myplug.id, "peer42");
+    assert.equal(devices.myplug.endpoint, 1);
   });
 });
