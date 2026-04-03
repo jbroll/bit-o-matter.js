@@ -268,6 +268,52 @@ describe("DELETE /things/:id", () => {
   });
 });
 
+describe("GET /events (SSE)", () => {
+  it("streams property changes", async () => {
+    saveDevices({ plug1: { id: "peer1", endpoint: 1 } });
+    const server = await svc.listen();
+    const addr = server.address();
+
+    const res = await fetch(`http://127.0.0.1:${addr.port}/events`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("content-type"), "text/event-stream");
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    // Read the initial SSE comment
+    let { value } = await reader.read();
+    let text = decoder.decode(value);
+    assert.ok(text.includes(":"), "should start with SSE comment");
+
+    // Trigger a cache update
+    svc.updateCache("plug1", "on", true);
+
+    // Read the event
+    ({ value } = await reader.read());
+    text = decoder.decode(value);
+    assert.ok(text.startsWith("data: "), "should be SSE data line");
+    const event = JSON.parse(text.replace("data: ", "").trim());
+    assert.equal(event.thing, "plug1");
+    assert.equal(event.property, "on");
+    assert.equal(event.value, true);
+
+    reader.cancel();
+  });
+
+  it("emits propertyChange event", async () => {
+    saveDevices({ plug1: { id: "peer1", endpoint: 1 } });
+    await svc.listen();
+
+    const received = [];
+    svc.events.on("propertyChange", (e) => received.push(e));
+
+    svc.updateCache("plug1", "on", false);
+    assert.equal(received.length, 1);
+    assert.deepEqual(received[0], { thing: "plug1", property: "on", value: false });
+  });
+});
+
 describe("unknown routes", () => {
   it("returns 404", async () => {
     const server = await svc.listen();

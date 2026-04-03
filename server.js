@@ -16,7 +16,7 @@ async function main() {
   const devices = loadDevices();
   if (Object.keys(devices).length > 0) {
     console.log("Subscribing to devices...");
-    await subscribeAll(controller, svc.cache, devices);
+    await subscribeAll(controller, svc.cache, devices, svc.updateCache);
   }
 
   await svc.listen();
