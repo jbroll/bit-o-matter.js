@@ -89,9 +89,30 @@ npm test
 
 Uses Node's built-in test runner (`node:test`). No additional dependencies.
 
-## Service API
+## Service
 
-A [REST API specification](SERVICE-SPEC.md) is defined for a persistent server layer over the CLI. This is not yet implemented.
+A persistent REST server that keeps a long-lived Matter controller and subscription-based state cache. Property reads return instantly from cache; writes send Matter commands to devices.
+
+```bash
+npm start                         # start on port 3000
+PORT=8080 npm start               # custom port
+```
+
+Quick test:
+
+```bash
+curl localhost:3000/things
+curl localhost:3000/things/plug1/properties
+curl -X PUT localhost:3000/things/plug1/properties/on -d '{"value":true}'
+```
+
+Live updates via Server-Sent Events:
+
+```bash
+curl localhost:3000/events
+```
+
+See [SERVICE.md](SERVICE.md) for full documentation and [SERVICE-SPEC.md](SERVICE-SPEC.md) for the API specification.
 
 ## Requirements
 
