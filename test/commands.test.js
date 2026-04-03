@@ -112,7 +112,7 @@ describe("toggle", () => {
     };
     // We need to use the real toggle but with a device that doesn't exist
     const { toggle } = await import("../lib/commands.js");
-    await assert.rejects(() => toggle("missing", true), /Unknown device/);
+    await assert.rejects(() => toggle(mockController, "missing", true), /Unknown device/);
   });
 });
 
@@ -120,7 +120,7 @@ describe("remove", () => {
   it("throws on unknown device", async () => {
     saveDevices({});
     const { remove } = await import("../lib/commands.js");
-    await assert.rejects(() => remove("missing"), /Unknown device/);
+    await assert.rejects(() => remove(null, "missing"), /Unknown device/);
   });
 });
 
@@ -129,7 +129,7 @@ describe("pair", () => {
     saveDevices({ plug1: { id: "peer1", endpoint: 1 } });
     const { pair } = await import("../lib/commands.js");
     await assert.rejects(
-      () => pair("plug1", "12345678", "3840"),
+      () => pair(null, "plug1", "12345678", "3840"),
       /already exists/
     );
   });
@@ -137,7 +137,7 @@ describe("pair", () => {
   it("throws when name is empty", async () => {
     const { pair } = await import("../lib/commands.js");
     await assert.rejects(
-      () => pair(undefined, "12345678", "3840"),
+      () => pair(null, undefined, "12345678", "3840"),
       /name is required/
     );
   });

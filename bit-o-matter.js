@@ -12,6 +12,7 @@
  */
 
 import { ensureDirs, saveWifi, loadWifi } from "./lib/store.js";
+import { getController } from "./lib/controller.js";
 import { pair, toggle, list, rename, remove, bleScan } from "./lib/commands.js";
 
 function usage() {
@@ -42,11 +43,13 @@ async function main() {
   const argv = process.argv.slice(2).filter(a => !a.startsWith("--"));
   const [cmd, ...args] = argv;
 
+  let controller;
   try {
     switch (cmd) {
       case "pair":
         if (![0, 1, 2, 3, 5].includes(args.length)) return usage();
-        await pair(args[0], args[1], args[2], args[3], args[4]);
+        controller = await getController({ ble: true });
+        await pair(controller, args[0], args[1], args[2], args[3], args[4]);
         break;
 
       case "wifi":
@@ -69,12 +72,14 @@ async function main() {
 
       case "on":
         if (args.length !== 1) return usage();
-        await toggle(args[0], true);
+        controller = await getController();
+        await toggle(controller, args[0], true);
         break;
 
       case "off":
         if (args.length !== 1) return usage();
-        await toggle(args[0], false);
+        controller = await getController();
+        await toggle(controller, args[0], false);
         break;
 
       case "list":
@@ -88,7 +93,8 @@ async function main() {
 
       case "remove":
         if (args.length !== 1) return usage();
-        await remove(args[0]);
+        controller = await getController();
+        await remove(controller, args[0]);
         break;
 
       case "scan":
@@ -104,6 +110,8 @@ async function main() {
       for (const e of err.errors) console.error("  Cause:", e.message || e);
     }
     process.exit(1);
+  } finally {
+    if (controller) await controller.close();
   }
 
   process.exit(0);

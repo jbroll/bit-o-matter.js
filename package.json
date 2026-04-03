@@ -3,10 +3,12 @@
   "version": "1.0.0",
   "type": "module",
   "bin": {
-    "bit": "./bit-o-matter.js"
+    "bit": "./bit-o-matter.js",
+    "bit-server": "./server.js"
   },
   "scripts": {
     "postinstall": "node postinstall.cjs",
+    "start": "node server.js",
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
