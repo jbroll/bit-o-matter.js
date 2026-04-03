@@ -112,7 +112,7 @@ Live updates via Server-Sent Events:
 curl localhost:3000/events
 ```
 
-See [SERVICE.md](SERVICE.md) for full documentation and [SERVICE-SPEC.md](SERVICE-SPEC.md) for the API specification.
+See [SERVICE.md](SERVICE.md) for full documentation.
 
 ## Requirements
 
